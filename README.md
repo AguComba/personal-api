@@ -24,6 +24,8 @@ pnpm dev          # node --watch, sin paso de build
 |---|---|
 | `pnpm dev` | Levanta el server con recarga |
 | `pnpm start` | Lo mismo sin watch (lo que corre systemd) |
+| `pnpm db:generate` | Genera la migración SQL a partir del schema de `src/db/schema.ts` |
+| `pnpm db:studio` | Explorador web de la base |
 | `pnpm typecheck` | `tsc --noEmit`. No emite: Node ejecuta los `.ts` directamente |
 | `pnpm lint` / `pnpm format` | Biome |
 | `pnpm test` | Vitest |
@@ -32,11 +34,30 @@ pnpm dev          # node --watch, sin paso de build
 > relativos llevan la extensión `.ts` explícita y `erasableSyntaxOnly` está activo:
 > nada de enums, namespaces ni decoradores.
 
+## Base de datos
+
+SQLite en un único archivo, cuya ruta sale de `DATABASE_PATH` (por defecto
+`./data/personal.sqlite`, gitignoreado). El schema completo del modelo vive en
+`src/db/schema.ts` y las migraciones generadas, en `drizzle/` — **se commitean**.
+
+Las migraciones pendientes se aplican solas al arrancar el proceso: un deploy no
+tiene paso de migración aparte.
+
+```bash
+# tras cambiar src/db/schema.ts
+pnpm db:generate      # revisar el .sql generado antes de commitearlo
+pnpm dev              # lo aplica al arrancar
+```
+
 ## Endpoints
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| `GET` | `/api/health` | Estado del proceso y uptime |
+| `GET` | `/api/health` | Estado del proceso y de la base |
+
+`GET /api/health` responde `200` con `{ status: 'ok', uptime, db: 'ok' }`. Si el
+proceso vive pero la base no responde, devuelve **`503`** con
+`{ status: 'degradado', uptime, db: 'error' }`.
 
 ## Deploy
 

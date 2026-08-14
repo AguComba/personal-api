@@ -17,13 +17,14 @@ Vive en `../documentacion/` (fuera de este repo). **`stack.md` es la fuente de v
 | `plan-de-implementacion.md` | En qué etapa estamos y qué bloquea qué |
 | `historias-de-usuario.md` | Las 28 HU, una por requerimiento funcional |
 
-Estado actual: **etapa 0** (esqueleto). La única ruta es `GET /api/health`; no hay base de datos ni schema todavía.
+Estado actual: **etapa 0** (esqueleto). La única ruta es `GET /api/health`. El schema completo del modelo ya existe con su primera migración, pero todavía no hay ninguna ruta que lea o escriba datos.
 
 ## Comandos
 
 ```bash
 pnpm dev                                   # node --watch, sin build
 pnpm start                                 # lo que corre systemd
+pnpm db:generate                           # migración a partir de src/db/schema.ts
 pnpm typecheck                             # tsc --noEmit
 pnpm lint                                  # biome check .
 pnpm format                                # biome check --write .
@@ -59,20 +60,18 @@ Si algún día el type stripping falla en la Pi, el fallback es agregar `tsc` al
 
 ## SQLite, Drizzle y datos
 
-Nada de esto existe todavía en el código; es cómo hay que escribirlo cuando llegue.
+- `src/db/index.ts` abre la conexión y exporta el singleton `db` (Drizzle) y el `sqlite` crudo. **Los cuatro pragmas se aplican ahí, antes de cualquier query** — `journal_mode = WAL`, `foreign_keys = ON`, `busy_timeout = 5000`, `synchronous = NORMAL`. Sin `foreign_keys = ON` las FK del schema son decorativas y SQLite no avisa.
+- `src/db/schema.ts` tiene el modelo completo del alcance §4: las 8 tablas, `link` incluida aunque recién se use en la etapa 5.
+- `src/db/migrar.ts` expone `migrarDb()`, que `src/index.ts` llama **antes del `listen()`**. No hay paso de migración en el deploy.
+- `drizzle/` son las migraciones generadas y **se commitean**. Biome las ignora a propósito: las escribe drizzle-kit y reformatearlas rompe el lint en cada `db:generate`.
 
-**Pragmas al abrir la conexión**, antes de cualquier query:
+El schema se cambia siempre en el `.ts` y después `pnpm db:generate`; nunca al revés ni editando una migración ya aplicada.
 
-```
-journal_mode = WAL
-foreign_keys = ON       -- sin esto las FK del schema son decorativas y SQLite no avisa
-busy_timeout = 5000
-synchronous = NORMAL
-```
+**Enums**: `account.type` y `category.kind` van como `text({ enum: [...] })`. Un `enum` de TS no compila acá (`erasableSyntaxOnly`) y además Drizzle no emite `CHECK`: la restricción es de tipos, no de la base.
 
-**FTS5** — la tabla virtual y sus triggers **no se declaran en el schema TS**. Se crean con `drizzle-kit generate --custom`, que deja un `.sql` vacío ya registrado en el journal de migraciones donde se escribe el DDL a mano, y se consultan con el template `sql` de Drizzle. Como el diff se hace contra el schema TS, ninguna migración futura intenta corregirlas.
+**FTS5** — todavía no existe; va con el módulo de notas. La tabla virtual y sus triggers **no se declaran en el schema TS**: se crean con `drizzle-kit generate --custom`, que deja un `.sql` vacío ya registrado en el journal de migraciones donde se escribe el DDL a mano, y se consultan con el template `sql` de Drizzle. Como el diff se hace contra el schema TS, ninguna migración futura intenta corregirlas.
 
-**`link`** — la tabla de relación genérica (`source_type`, `source_id`, `target_type`, `target_id`) es polimórfica y sin foreign keys. Va en el schema normal: Drizzle no exige declarar relaciones.
+**`link`** — la tabla de relación genérica (`source_type`, `source_id`, `target_type`, `target_id`) es polimórfica y sin foreign keys, con un índice por cada extremo porque los vínculos se leen en los dos sentidos.
 
 **Convenciones de datos** (alcance §4):
 
