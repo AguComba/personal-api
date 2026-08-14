@@ -29,10 +29,14 @@ pnpm typecheck                             # tsc --noEmit
 pnpm lint                                  # biome check .
 pnpm format                                # biome check --write .
 pnpm test                                  # vitest run --passWithNoTests
-pnpm vitest run src/x.test.ts -t "nombre"  # un solo test
+pnpm vitest run tests/auth/sesion.test.ts -t "nombre"   # un solo test
 ```
 
-Node 24 y pnpm 11, fijados en `mise.toml` y `.nvmrc`. Todavía no hay ningún test escrito: por eso `--passWithNoTests`. Se testea solo la lógica de finanzas y fechas (alcance §6); no hay E2E.
+Node 24 y pnpm 11, fijados en `mise.toml` y `.nvmrc`.
+
+Los tests viven en **`tests/`, espejando la estructura de `src/`** (`src/auth/sesion.ts` → `tests/auth/sesion.test.ts`), no al lado del fuente: `src/` se lee como el mapa de lo que la app hace, y los tests intercalados lo tapan. `tests/` está en el `include` del `tsconfig.json`, así que el typecheck también los cubre.
+
+Se testea solo la lógica de finanzas y fechas (alcance §6) más `src/auth/`; no hay E2E. El `--passWithNoTests` quedó de cuando no había ninguno.
 
 ## El backend no tiene paso de build
 
@@ -71,6 +75,8 @@ Todo vive en `src/auth/` y **no usa ninguna dependencia**: `node:crypto` alcanza
 - `requerir-sesion.ts` — va montado en `src/app.ts` como `app.use('/api', requerirSesion)` **después** de las rutas públicas. Es lo que hace que **toda ruta nueva de `/api` nazca protegida sin acordarse de nada**. Lo público (health, `/api/auth/*`) se registra arriba de esa línea; lo demás, abajo.
 - El guard se monta en `/api` y no en la app entera para que el futuro catch-all del SPA sirva el HTML sin sesión: el login tiene que poder cargar.
 - `rutas.ts` — el freno a la fuerza bruta es un contador global en memoria. Global porque hay un solo usuario; en memoria porque perderlo en un reinicio no vale una tabla.
+
+`password.ts` y `sesion.ts` son la excepción a "se testea solo finanzas y fechas": son lógica pura y el único punto donde un bug silencioso deja el backend abierto sin que se note probando a mano.
 
 ## SQLite, Drizzle y datos
 

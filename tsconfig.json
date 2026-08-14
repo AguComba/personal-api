@@ -20,5 +20,5 @@
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "drizzle.config.ts"]
+  "include": ["src", "tests", "drizzle.config.ts"]
 }
