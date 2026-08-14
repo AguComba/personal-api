@@ -1,4 +1,5 @@
 import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { COLORES } from '../dominio/colores.ts'
 
 // El modelo completo del alcance §4. Está entero desde la etapa 0 aunque varias
 // tablas recién se usen más adelante: `link` no se consulta hasta la etapa 5.
@@ -25,7 +26,8 @@ export const note = sqliteTable('note', {
 export const tag = sqliteTable('tag', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull().unique(),
-  color: text('color').notNull(),
+  // Un slug de la lista cerrada, no un hex: ver src/dominio/colores.ts.
+  color: text('color', { enum: COLORES }).notNull(),
 })
 
 export const noteTag = sqliteTable(
@@ -72,7 +74,7 @@ export const category = sqliteTable('category', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
   kind: text('kind', { enum: ['ingreso', 'egreso'] }).notNull(),
-  color: text('color').notNull(),
+  color: text('color', { enum: COLORES }).notNull(),
 })
 
 export const transaction = sqliteTable(

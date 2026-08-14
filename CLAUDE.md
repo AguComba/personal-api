@@ -13,6 +13,7 @@ Vive en `../documentacion/` (fuera de este repo). **`stack.md` es la fuente de v
 | Archivo | Cuándo leerlo |
 |---|---|
 | `stack.md` | Antes de tocar cualquier decisión de tecnología, versión o dependencia |
+| `sistema-de-diseno.md` | Solo por §3.3: `tag.color` y `category.color` guardan uno de 8 slugs, no un hex |
 | `alcance-proyecto-personal.md` | Modelo de datos (§4), requerimientos RF/RNF (§5, §7) y qué está fuera de alcance (§6) |
 | `plan-de-implementacion.md` | En qué etapa estamos y qué bloquea qué |
 | `historias-de-usuario.md` | Las 28 HU, una por requerimiento funcional |
