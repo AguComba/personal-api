@@ -1,8 +1,11 @@
-# personal-api
+# api
 
 Backend del [proyecto personal](../documentacion/alcance-proyecto-personal.md). Node 24 + Express 5 + SQLite.
 
-Este README es **el contrato con `personal-web`** (alcance §3): toda ruta nueva se documenta acá.
+Este README es **el contrato con [`web/`](../web/README.md)** (alcance §3): toda ruta nueva se documenta acá.
+
+> El servicio de systemd se llama `personal-api`, no `api`: la carpeta está dentro de
+> `personal/`, la unit de la Pi no.
 
 ## Requisitos
 
