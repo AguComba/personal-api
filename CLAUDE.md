@@ -17,7 +17,7 @@ Vive en `../documentacion/` (fuera de este repo). **`stack.md` es la fuente de v
 | `plan-de-implementacion.md` | En qué etapa estamos y qué bloquea qué |
 | `historias-de-usuario.md` | Las 28 HU, una por requerimiento funcional |
 
-Estado actual: **etapa 0** (esqueleto). La única ruta es `GET /api/health`. El schema completo del modelo ya existe con su primera migración, pero todavía no hay ninguna ruta que lea o escriba datos.
+Estado actual: **etapa 0** (esqueleto). Las rutas son `GET /api/health` y las tres de `/api/auth`. El schema completo del modelo ya existe con su primera migración, pero todavía no hay ninguna ruta que lea o escriba datos.
 
 ## Comandos
 
@@ -56,7 +56,21 @@ Si algún día el type stripping falla en la Pi, el fallback es agregar `tsc` al
 
 `src/env.ts` valida `process.env` con Zod y hace `process.exit(1)` si falta o sobra algo. Toda variable nueva se agrega ahí **y** a `.env.example`.
 
-`HOST` es `127.0.0.1` por defecto y en la Pi apunta a la IP de la tailnet: **nunca `0.0.0.0`** (RNF-S3). La app no expone puertos a internet y no tiene autenticación — la pertenencia a la tailnet es la autorización.
+`HOST` es `127.0.0.1` por defecto y en la Pi apunta a la IP de la tailnet: **nunca `0.0.0.0`** (RNF-S3). La app no expone puertos a internet.
+
+`PASSWORD_HASH` y `SESSION_SECRET` **no tienen default a propósito**: sin ellos el proceso muere al arrancar. Un default silencioso dejaría el backend abierto, que es exactamente lo que la autenticación viene a cerrar.
+
+## Autenticación
+
+**RNF-S2 cambió**: la tailnet ya no es la única autorización. Ahora son dos capas — la tailnet y una contraseña única encima. Sigue sin haber usuarios, roles, registro ni recuperación.
+
+Todo vive en `src/auth/` y **no usa ninguna dependencia**: `node:crypto` alcanza (stack.md §7, pregunta 3). No entran `express-session`, `cookie-parser`, `passport`, `jose`, `bcrypt` ni `argon2`.
+
+- `password.ts` — `scrypt` con los parámetros embebidos en el hash (`scrypt$N$r$p$salt$hash`), así subirlos mañana no invalida el hash de hoy. Comparación con `timingSafeEqual`.
+- `sesion.ts` — la sesión **no tiene estado**: la cookie es su propio vencimiento firmado con HMAC-SHA256. No hay tabla de sesiones y no hace falta ninguna. Revocar todo = rotar `SESSION_SECRET` y reiniciar.
+- `requerir-sesion.ts` — va montado en `src/app.ts` como `app.use('/api', requerirSesion)` **después** de las rutas públicas. Es lo que hace que **toda ruta nueva de `/api` nazca protegida sin acordarse de nada**. Lo público (health, `/api/auth/*`) se registra arriba de esa línea; lo demás, abajo.
+- El guard se monta en `/api` y no en la app entera para que el futuro catch-all del SPA sirva el HTML sin sesión: el login tiene que poder cargar.
+- `rutas.ts` — el freno a la fuerza bruta es un contador global en memoria. Global porque hay un solo usuario; en memoria porque perderlo en un reinicio no vale una tabla.
 
 ## SQLite, Drizzle y datos
 
