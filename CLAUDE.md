@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Backend del proyecto personal: una app self-hosted en una Raspberry Pi, **un solo usuario**, accesible únicamente por Tailscale. Reemplaza notas, finanzas, calendario/tareas y pomodoro con un modelo de datos común.
+Backend del proyecto personal: una app self-hosted en una Raspberry Pi de la red de casa, **un solo usuario**, accesible por IP en la LAN y por Tailscale cuando se está afuera. Reemplaza notas, finanzas, calendario/tareas y pomodoro con un modelo de datos común.
 
 El proyecto se escribe en español: código, comentarios, commits y documentación.
 
@@ -24,7 +24,7 @@ Estado actual: **etapa 0** (esqueleto). Las rutas son `GET /api/health` y las tr
 
 ```bash
 pnpm dev                                   # node --watch, sin build
-pnpm start                                 # lo que corre systemd
+pnpm start                                 # lo mismo sin watch (lo que corre el contenedor)
 pnpm db:generate                           # migración a partir de src/db/schema.ts
 pnpm typecheck                             # tsc --noEmit
 pnpm lint                                  # biome check .
@@ -46,35 +46,44 @@ Node 24 ejecuta los `.ts` directamente por type stripping nativo. Es la restricc
 - Los imports relativos llevan **extensión `.ts` explícita** (`import { createApp } from './app.ts'`).
 - `erasableSyntaxOnly` está activo: **nada de enums, namespaces ni decoradores**. Es sintaxis que el runtime no puede borrar y rompería en producción.
 - `verbatimModuleSyntax` está activo: los imports de tipos van con `import type`.
-- `tsc` es únicamente el typecheck (`noEmit`). El deploy es `git pull` + `pnpm install --frozen-lockfile` + `systemctl restart personal-api`, sin compilar nada.
+- `tsc` es únicamente el typecheck (`noEmit`). La imagen no compila nada: copia `src/` y arranca con `node src/index.ts`.
 
-Si algún día el type stripping falla en la Pi, el fallback es agregar `tsc` al deploy — y por eso ninguna decisión del stack depende de tener un build.
+Si algún día el type stripping falla en la Pi, el fallback es agregar `tsc` al `Dockerfile` — y por eso ninguna decisión del stack depende de tener un build.
 
 ## Estructura del servidor
 
 - `createApp()` vive en `src/app.ts`, separado del `listen()` de `src/index.ts`. La app se puede montar en un test sin abrir un puerto.
 - **Express 5 propaga solo los errores de handlers `async`**: no hace falta envolverlos en try/catch ni en un wrapper.
-- El catch-all que sirva el SPA se escribe `app.get('/*splat', ...)`. Express 5 usa path-to-regexp 8, donde el comodín pelado `'*'` **no es una ruta válida**.
-- El servicio de systemd se llama `personal-api`, no `api`.
+- **Este proceso no sirve el frontend.** De eso se encarga el nginx de la imagen `personal-web`, que además le proxea `/api` acá. El 404 final en JSON es correcto: no hay que agregarle ningún catch-all de SPA.
+- La imagen se llama `personal-api`, no `api`: la carpeta está dentro de `personal/`, la imagen publicada no.
+
+## Docker
+
+El repo trae su `Dockerfile`. Dos etapas sobre la misma base (`node:24-slim`): `deps` instala las dependencias de producción —incluye `python3`, `make` y `g++` por si `better-sqlite3` no encuentra prebuild arm64 y tiene que compilar—, y `runtime` copia ese `node_modules` más `src/` y `drizzle/`. Cambiar de base entre etapas rompería la compatibilidad de glibc.
+
+- **No hay paso de build**: el `CMD` es `node src/index.ts`, directo, sin pnpm de por medio para que el `SIGTERM` llegue al proceso y alcance a checkpointear el WAL.
+- Corre como usuario `node` (uid 1000). **El directorio de datos que se monte desde el host tiene que ser de ese uid** o no se puede escribir el WAL.
+- `HOST` tiene que ser `0.0.0.0` en el contenedor: con el default `127.0.0.1` el proceso solo se escucha a sí mismo y nginx no lo alcanza.
+- `.dockerignore` deja afuera `.env`, `data/` y los `.sqlite`: son estado y secretos, no pueden terminar horneados en una imagen.
 
 ## Configuración
 
 `src/env.ts` valida `process.env` con Zod y hace `process.exit(1)` si falta o sobra algo. Toda variable nueva se agrega ahí **y** a `.env.example`.
 
-`HOST` es `127.0.0.1` por defecto y en la Pi apunta a la IP de la tailnet: **nunca `0.0.0.0`** (RNF-S3). La app no expone puertos a internet.
+`HOST` es `127.0.0.1` por defecto, que es lo correcto corriendo el backend a mano. En el contenedor va en `0.0.0.0`, que ahí no expone nada: es dentro del namespace de red del contenedor, sin ninguna interfaz del host. Quién puede llegar lo decide en qué interfaz se publica el puerto de nginx, y hacia internet no se expone nada porque el router no hace port forwarding (RNF-S1).
 
 `PASSWORD_HASH` y `SESSION_SECRET` **no tienen default a propósito**: sin ellos el proceso muere al arrancar. Un default silencioso dejaría el backend abierto, que es exactamente lo que la autenticación viene a cerrar.
 
 ## Autenticación
 
-**RNF-S2 cambió**: la tailnet ya no es la única autorización. Ahora son dos capas — la tailnet y una contraseña única encima. Sigue sin haber usuarios, roles, registro ni recuperación.
+**RNF-S2 cambió, y después cambió el contexto.** La contraseña única dejó de ser la segunda capa sobre la tailnet: en casa no hay tailnet, así que **es la única barrera**. Cualquier dispositivo del wifi llega al puerto. Sigue sin haber usuarios, roles, registro ni recuperación, pero el freno de fuerza bruta de `rutas.ts` no es un extra.
 
 Todo vive en `src/auth/` y **no usa ninguna dependencia**: `node:crypto` alcanza (stack.md §7, pregunta 3). No entran `express-session`, `cookie-parser`, `passport`, `jose`, `bcrypt` ni `argon2`.
 
 - `password.ts` — `scrypt` con los parámetros embebidos en el hash (`scrypt$N$r$p$salt$hash`), así subirlos mañana no invalida el hash de hoy. Comparación con `timingSafeEqual`.
 - `sesion.ts` — la sesión **no tiene estado**: la cookie es su propio vencimiento firmado con HMAC-SHA256. No hay tabla de sesiones y no hace falta ninguna. Revocar todo = rotar `SESSION_SECRET` y reiniciar.
 - `requerir-sesion.ts` — va montado en `src/app.ts` como `app.use('/api', requerirSesion)` **después** de las rutas públicas. Es lo que hace que **toda ruta nueva de `/api` nazca protegida sin acordarse de nada**. Lo público (health, `/api/auth/*`) se registra arriba de esa línea; lo demás, abajo.
-- El guard se monta en `/api` y no en la app entera para que el futuro catch-all del SPA sirva el HTML sin sesión: el login tiene que poder cargar.
+- El guard se monta en `/api` porque es el prefijo que nginx proxea hasta acá.
 - `rutas.ts` — el freno a la fuerza bruta es un contador global en memoria. Global porque hay un solo usuario; en memoria porque perderlo en un reinicio no vale una tabla.
 
 `password.ts` y `sesion.ts` son la excepción a "se testea solo finanzas y fechas": son lógica pura y el único punto donde un bug silencioso deja el backend abierto sin que se note probando a mano.

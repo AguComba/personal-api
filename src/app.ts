@@ -18,9 +18,9 @@ export const createApp = () => {
   // --- Público (RNF-S2) ---------------------------------------------------
   app.use('/api/auth', rutasAuth)
 
-  // Toca la base a propósito: lo que importa saber después de un `systemctl
-  // restart` es si el proceso vive *y* la base abre. Un 503 explícito, no el 500
-  // del errorHandler, para poder distinguir los dos casos desde el celular.
+  // Toca la base a propósito: lo que importa saber después de un deploy es si el
+  // proceso vive *y* la base abre. Un 503 explícito, no el 500 del errorHandler,
+  // para poder distinguir los dos casos desde el celular.
   // Queda pública: sirve justamente para chequear la Pi sin tener que loguearse.
   app.get('/api/health', (_req, res) => {
     const uptime = process.uptime()
@@ -37,9 +37,9 @@ export const createApp = () => {
   })
 
   // --- Barrera (RNF-S2) ---------------------------------------------------
-  // Todo lo que se registre debajo nace protegido. Va montada en `/api` y no en
-  // la app entera para que el futuro catch-all del SPA siga sirviendo el HTML
-  // sin sesión: el login tiene que poder cargar.
+  // Todo lo que se registre debajo nace protegido. Va montada en `/api` porque
+  // es el prefijo que nginx proxea hasta acá: lo público (health, `/api/auth/*`)
+  // se registra arriba de esta línea, lo demás abajo.
   app.use('/api', requerirSesion)
 
   app.use((_req, res) => {

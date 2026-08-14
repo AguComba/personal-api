@@ -7,8 +7,5 @@ data/
 *.sqlite-wal
 *.sqlite-shm
 
-# Estáticos del front copiados en el deploy
-public/
-
 *.log
 .DS_Store

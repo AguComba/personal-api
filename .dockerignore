@@ -1,0 +1,27 @@
+# Todo lo que no tiene que entrar en el contexto de build.
+# La base de datos y el .env son los dos importantes: son estado y secretos de
+# la Pi, y hornearlos en una imagen que se publica en GHCR sería filtrarlos.
+
+node_modules
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.env
+.env.*
+!.env.example
+
+.git
+.github
+tests/
+*.md
+biome.json
+tsconfig.json
+drizzle.config.ts
+mise.toml
+.nvmrc
+*.log
+.DS_Store
+Dockerfile
+.dockerignore
+compose.yaml

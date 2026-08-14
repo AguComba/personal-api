@@ -10,7 +10,8 @@ const server = createApp().listen(env.port, env.host, () => {
   console.log(`personal-api escuchando en http://${env.host}:${env.port}`)
 })
 
-// systemd manda SIGTERM en `systemctl restart` (RNF-5)
+// Docker manda SIGTERM al parar o reiniciar el contenedor (RNF-5). Llega al
+// proceso directo porque el CMD del Dockerfile es `node`, sin pnpm ni shell.
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
     server.close(() => {

@@ -4,8 +4,8 @@ Backend del [proyecto personal](../documentacion/alcance-proyecto-personal.md). 
 
 Este README es **el contrato con [`web/`](../web/README.md)** (alcance §3): toda ruta nueva se documenta acá.
 
-> El servicio de systemd se llama `personal-api`, no `api`: la carpeta está dentro de
-> `personal/`, la unit de la Pi no.
+> La imagen Docker se llama `personal-api`, no `api`: la carpeta está dentro de
+> `personal/`, la imagen no.
 
 ## Requisitos
 
@@ -30,7 +30,7 @@ sin autenticación al que se pueda caer por accidente.
 | Script | Qué hace |
 |---|---|
 | `pnpm dev` | Levanta el server con recarga |
-| `pnpm start` | Lo mismo sin watch (lo que corre systemd) |
+| `pnpm start` | Lo mismo sin watch (lo que corre el contenedor) |
 | `pnpm hash-password` | Hashea una contraseña e imprime la línea para el `.env` |
 | `pnpm db:generate` | Genera la migración SQL a partir del schema de `src/db/schema.ts` |
 | `pnpm db:studio` | Explorador web de la base |
@@ -113,15 +113,36 @@ front la llama al arrancar para decidir si muestra el login, y "todavía no me l
 no es un error.
 
 > La cookie es `HttpOnly` y `SameSite=Lax`: el front no la lee ni la manda a mano, la
-> adjunta el navegador. En producción el mismo proceso sirve el SPA y la API, así que
-> es same-origin y funciona sin CORS. **En desarrollo el front tiene que proxyear
-> `/api` desde el dev server de Vite** para seguir siendo same-origin; si en cambio
-> pega directo a `localhost:3000`, es cross-origin y la cookie no viaja.
+> adjunta el navegador. En producción nginx sirve el SPA y proxea `/api` a este
+> proceso, así que es same-origin y funciona sin CORS. **En desarrollo el front tiene
+> que proxyear `/api` desde el dev server de Vite** para seguir siendo same-origin; si
+> en cambio pega directo a `localhost:3000`, es cross-origin y la cookie no viaja.
 
-## Deploy
+## Docker
+
+El repo trae su [`Dockerfile`](Dockerfile). Se construye fuera de la Pi; ahí solo se
+levanta. **No hay paso de build**: Node ejecuta los `.ts` directamente.
 
 ```bash
-git pull
-pnpm install --frozen-lockfile
-sudo systemctl restart personal-api
+docker build -t personal-api .
 ```
+
+Tres cosas que hay que respetar al correrlo:
+
+| Qué | Por qué |
+|---|---|
+| `HOST=0.0.0.0` | Con el default `127.0.0.1` el proceso solo se escucha a sí mismo y nginx no lo alcanza. Ahí dentro `0.0.0.0` no expone nada: es el namespace del contenedor |
+| El volumen de datos, del uid **1000** | El contenedor corre como el usuario `node`. Sin eso no puede escribir el WAL |
+| `PASSWORD_HASH` y `SESSION_SECRET` por variable de entorno | No están en la imagen y sin ellos el proceso no arranca (RNF-S2) |
+
+La imagen del front (`personal-web`) es un nginx que sirve el bundle y proxea `/api`
+hasta acá; su `nginx.conf` busca el host `api`, que tiene que resolver al arrancar.
+
+## Red
+
+Se entra por IP: la de la LAN estando en casa, la de la tailnet estando afuera. **Sin
+dominio y sin HTTPS** (RNF-S4), y por eso `COOKIE_SECURE` va en `false`.
+
+El router no hace port forwarding, así que nada de esto se expone a internet (RNF-S1).
+Pero dentro de casa **cualquier dispositivo del wifi llega al puerto**: la contraseña
+única no es una segunda capa sobre la tailnet, es la barrera.
