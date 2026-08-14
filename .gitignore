@@ -1,0 +1,14 @@
+node_modules
+.env
+
+# Base de datos y sus archivos de WAL: nunca se commitean
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Estáticos del front copiados en el deploy
+public/
+
+*.log
+.DS_Store

@@ -1,0 +1,6 @@
+# No es un workspace: desde pnpm 11 este archivo es el lugar de las settings.
+# better-sqlite3 necesita correr su script de instalación para bajar (o compilar)
+# el binding nativo; esbuild lo usan vitest y drizzle-kit.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
