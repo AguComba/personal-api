@@ -14,14 +14,22 @@ import { COLORES } from '../dominio/colores.ts'
 
 const ahora = () => new Date().toISOString()
 
-export const note = sqliteTable('note', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  title: text('title').notNull(),
-  content: text('content').notNull().default(''),
-  createdAt: text('created_at').notNull().$defaultFn(ahora),
-  updatedAt: text('updated_at').notNull().$defaultFn(ahora),
-  archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
-})
+// La tabla virtual FTS5 que indexa `title` y `content` no se declara acá: se crea
+// con una migración custom (drizzle/0002_notas_fts.sql) y se consulta con el
+// template `sql`. Ver el README y el CLAUDE.md.
+export const note = sqliteTable(
+  'note',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    title: text('title').notNull(),
+    content: text('content').notNull().default(''),
+    createdAt: text('created_at').notNull().$defaultFn(ahora),
+    updatedAt: text('updated_at').notNull().$defaultFn(ahora),
+    archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+  },
+  // RF-N4 ordena el listado por fecha de modificación, siempre.
+  (t) => [index('note_updated_at_idx').on(t.updatedAt)],
+)
 
 export const tag = sqliteTable('tag', {
   id: integer('id').primaryKey({ autoIncrement: true }),

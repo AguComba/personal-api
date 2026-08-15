@@ -3,6 +3,7 @@ import express, { type ErrorRequestHandler } from 'express'
 import { requerirSesion } from './auth/requerir-sesion.ts'
 import { rutasAuth } from './auth/rutas.ts'
 import { db } from './db/index.ts'
+import { rutasNotas, rutasTags } from './notas/rutas.ts'
 
 // Express 5 propaga los errores de handlers async solo: no hace falta envolverlos.
 const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
@@ -41,6 +42,10 @@ export const createApp = () => {
   // es el prefijo que nginx proxea hasta acá: lo público (health, `/api/auth/*`)
   // se registra arriba de esta línea, lo demás abajo.
   app.use('/api', requerirSesion)
+
+  // --- Privado ------------------------------------------------------------
+  app.use('/api/notas', rutasNotas)
+  app.use('/api/tags', rutasTags)
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'No encontrado' })

@@ -1,0 +1,1 @@
+CREATE INDEX `note_updated_at_idx` ON `note` (`updated_at`);

@@ -18,7 +18,7 @@ Vive en `../documentacion/` (fuera de este repo). **`stack.md` es la fuente de v
 | `plan-de-implementacion.md` | En qué etapa estamos y qué bloquea qué |
 | `historias-de-usuario.md` | Las 28 HU, una por requerimiento funcional |
 
-Estado actual: **etapa 0** (esqueleto). Las rutas son `GET /api/health` y las tres de `/api/auth`. El schema completo del modelo ya existe con su primera migración, pero todavía no hay ninguna ruta que lea o escriba datos.
+Estado actual: **etapa 2** (notas). A `GET /api/health` y las tres de `/api/auth` se sumaron las cinco de `/api/notas` y `GET /api/tags`, que son las primeras que leen y escriben datos. Faltan finanzas (etapa 3), tareas (4) y los cruces (5).
 
 ## Comandos
 
@@ -88,6 +88,18 @@ Todo vive en `src/auth/` y **no usa ninguna dependencia**: `node:crypto` alcanza
 
 `password.ts` y `sesion.ts` son la excepción a "se testea solo finanzas y fechas": son lógica pura y el único punto donde un bug silencioso deja el backend abierto sin que se note probando a mano.
 
+## Notas (`src/notas/`)
+
+`rutas.ts` valida y traduce a HTTP; `datos.ts` es todo lo que toca la base y no ve un `req` ni un `res`. El driver es síncrono, así que las consultas se cierran con `.all()` / `.get()` / `.run()` y las transacciones son transacciones de verdad, sin await de por medio.
+
+Tres cosas que no son obvias:
+
+- **`consultas-fts.ts` es la única pieza del módulo que se testea.** Lo que se escribe en el buscador no puede llegar crudo al `MATCH`: `AND`, `NEAR`, `columna:` y las comillas son sintaxis de FTS5, y un carácter suelto hace que SQLite **falle**, no que no encuentre nada. La defensa es partir por todo lo que no sea letra o número, así ningún carácter con significado sobrevive y cada token se puede encomillar sin escapar. Es lógica pura donde un caso borde rompe la pantalla entera.
+- **El `PATCH` es parcial de verdad**: lo que no viene en el cuerpo no se toca. Es lo que permite que el autoguardado del front mande solo `contenido` cada vez que se deja de escribir, sin pisar los tags ni el archivado. Un `PUT` que reemplace la nota entera los borraría.
+- **Buscar ignora el archivado.** RF-N6 dice que archivar saca del listado pero que la nota sigue siendo buscable: con `q` se busca en todas y cada resultado dice si está archivada.
+
+Los tags no tienen ABM: se crean al vuelo con la nota, se normalizan a minúscula y **el que se queda sin ninguna nota se borra solo**. El color nunca lo elige nadie — sale de `colorPorNombre()`, que es estable, así que el mismo nombre cae siempre en el mismo color sin consultar los que ya existen.
+
 ## SQLite, Drizzle y datos
 
 - `src/db/index.ts` abre la conexión y exporta el singleton `db` (Drizzle) y el `sqlite` crudo. **Los cuatro pragmas se aplican ahí, antes de cualquier query** — `journal_mode = WAL`, `foreign_keys = ON`, `busy_timeout = 5000`, `synchronous = NORMAL`. Sin `foreign_keys = ON` las FK del schema son decorativas y SQLite no avisa.
@@ -99,7 +111,11 @@ El schema se cambia siempre en el `.ts` y después `pnpm db:generate`; nunca al 
 
 **Enums**: `account.type` y `category.kind` van como `text({ enum: [...] })`. Un `enum` de TS no compila acá (`erasableSyntaxOnly`) y además Drizzle no emite `CHECK`: la restricción es de tipos, no de la base.
 
-**FTS5** — todavía no existe; va con el módulo de notas. La tabla virtual y sus triggers **no se declaran en el schema TS**: se crean con `drizzle-kit generate --custom`, que deja un `.sql` vacío ya registrado en el journal de migraciones donde se escribe el DDL a mano, y se consultan con el template `sql` de Drizzle. Como el diff se hace contra el schema TS, ninguna migración futura intenta corregirlas.
+**FTS5** — `note_fts` vive en `drizzle/0002_notas_fts.sql`, escrita a mano con `drizzle-kit generate --custom`. La tabla virtual y sus triggers **no se declaran en el schema TS**: como el diff se hace contra ese schema, ninguna migración futura intenta corregirlos. Se consulta con el template `sql` de Drizzle.
+
+- Es una tabla de **contenido externo** (`content='note'`): guarda el índice invertido y va a buscar el texto a `note` en vez de duplicarlo. El precio es que la sincronización corre por cuenta nuestra, y de ahí los tres triggers. **El de borrado inserta una fila `'delete'` con los valores viejos**, que es la única forma de sacar algo del índice cuando la fila original ya no está.
+- El tokenizador lleva `remove_diacritics 2`: sin eso, buscar "cafe" no encuentra "café" y la búsqueda en español falla la mitad de las veces.
+- Si alguna vez el índice queda desfasado, `INSERT INTO note_fts(note_fts) VALUES('rebuild')` lo reconstruye desde `note`.
 
 **`link`** — la tabla de relación genérica (`source_type`, `source_id`, `target_type`, `target_id`) es polimórfica y sin foreign keys, con un índice por cada extremo porque los vínculos se leen en los dos sentidos.
 

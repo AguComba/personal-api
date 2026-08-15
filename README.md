@@ -86,6 +86,12 @@ ruta inexistente sin sesión también (a propósito: no deja enumerar rutas).
 | `POST` | `/api/auth/login` | pública | Inicia sesión y setea la cookie |
 | `POST` | `/api/auth/logout` | pública | Borra la cookie |
 | `GET` | `/api/auth/sesion` | pública | Si la cookie actual sigue valiendo |
+| `GET` | `/api/notas` | cookie | Listado, con filtro por tag y búsqueda full-text |
+| `POST` | `/api/notas` | cookie | Crea una nota |
+| `GET` | `/api/notas/:id` | cookie | Una nota con su contenido y sus tags |
+| `PATCH` | `/api/notas/:id` | cookie | Edita **parcialmente**: lo que no viene, no se toca |
+| `DELETE` | `/api/notas/:id` | cookie | Borra una nota |
+| `GET` | `/api/tags` | cookie | Los tags en uso, para el filtro |
 
 `GET /api/health` responde `200` con `{ status: 'ok', uptime, db: 'ok' }`. Si el
 proceso vive pero la base no responde, devuelve **`503`** con
@@ -111,6 +117,118 @@ const loginSchema = z.object({
 `GET /api/auth/sesion` → `200 { autenticado: boolean }`. Es pública a propósito: el
 front la llama al arrancar para decidir si muestra el login, y "todavía no me logueé"
 no es un error.
+
+### Notas (RF-N1 a N6)
+
+Los payloads van **en español**, como el resto de la API (`autenticado`, `reintentarEn`):
+los nombres en inglés son de las columnas de SQLite y no salen de `src/db/`.
+
+Una nota completa, que es lo que devuelven `POST`, `GET /:id` y `PATCH` — copiar a
+mano en `web/`:
+
+```ts
+const tagSchema = z.object({
+  id: z.number(),
+  nombre: z.string(),
+  color: colorSchema, // los 8 slugs de src/dominio/colores.ts
+})
+
+const notaSchema = z.object({
+  id: z.number(),
+  titulo: z.string(),
+  contenido: z.string(),
+  creadaEn: z.iso.datetime(),
+  modificadaEn: z.iso.datetime(),
+  archivada: z.boolean(),
+  tags: z.array(tagSchema),
+})
+```
+
+En el listado la nota viene sin `contenido` ni `creadaEn`, y con un `extracto` en su
+lugar:
+
+```ts
+const notaEnListaSchema = z.object({
+  id: z.number(),
+  titulo: z.string(),
+  extracto: z.string(),
+  modificadaEn: z.iso.datetime(),
+  archivada: z.boolean(),
+  tags: z.array(tagSchema),
+})
+```
+
+`GET /api/notas` → `200` con un array de `notaEnLista`. Tres parámetros, todos
+opcionales:
+
+| Param | Qué hace |
+|---|---|
+| `q` | Búsqueda full-text sobre título y contenido (FTS5). Ordena por relevancia y el `extracto` pasa a ser el fragmento donde apareció el término |
+| `tag` | Deja solo las notas que tengan ese tag, por nombre exacto |
+| `archivadas` | `true` para ver **solo** las archivadas. Por defecto, solo las no archivadas |
+
+- **Sin `q` el orden es por fecha de modificación descendente** (RF-N4); con `q`, por
+  relevancia.
+- **`q` busca también en las archivadas** e ignora el parámetro `archivadas`: archivar
+  saca del listado, no del alcance de la búsqueda (RF-N6). Cada resultado dice si lo
+  está en `archivada`.
+- Una `q` de la que no queda ningún término buscable (vacía, o solo símbolos) se trata
+  como si no hubiera búsqueda.
+
+`POST /api/notas` — todos los campos tienen default, así que `{}` crea una nota vacía:
+
+```ts
+const notaNuevaSchema = z.object({
+  titulo: z.string().trim().max(200).default(''),
+  contenido: z.string().max(100_000).default(''),
+  tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
+})
+```
+
+`PATCH /api/notas/:id` — **los cuatro son opcionales y lo que no viene no se toca**. Es
+lo que deja que el autoguardado mande solo `contenido` sin pisar los tags:
+
+```ts
+const cambiosSchema = z.object({
+  titulo: z.string().trim().max(200).optional(),
+  contenido: z.string().max(100_000).optional(),
+  archivada: z.boolean().optional(),
+  tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+})
+```
+
+| Código | Cuerpo |
+|---|---|
+| `200` | La nota completa (`GET /:id`, `PATCH`) o el array del listado |
+| `201` | La nota completa recién creada (`POST`) |
+| `204` | Sin cuerpo (`DELETE`) |
+| `400` | `{ error: 'Filtros inválidos' \| 'Nota inválida' \| 'Cambios inválidos' \| 'Id inválido' }` |
+| `404` | `{ error: 'No encontrada' }` |
+
+**El título puede quedar vacío a propósito.** Con autoguardado, una nota recién
+empezada todavía no tiene uno, y rechazarla haría perder lo que se está escribiendo:
+el "Sin título" es cosa del front.
+
+**Los tags se mandan como nombres, no como ids** (RF-N3): se crean al vuelo los que no
+existan. El backend los normaliza a minúscula y sin espacios en los extremos, para que
+"Trabajo" y "trabajo" no terminen siendo dos tags con dos colores, y **el color no se
+elige** — se deriva del nombre con un hash estable (`src/dominio/colores.ts`), así el
+mismo tag cae siempre en el mismo color. Mandar `tags` **reemplaza** la lista entera.
+
+Un tag que se queda sin ninguna nota se borra solo: no hay ABM de tags porque no hay
+nada que administrar.
+
+`GET /api/tags` → `200` con los tags **en uso**, ordenados por nombre:
+
+```ts
+const tagEnUsoSchema = tagSchema.extend({ notas: z.number() })
+```
+
+> **La búsqueda es FTS5**, con `remove_diacritics 2`: buscar `cafe` encuentra `café`.
+> El último término se busca por prefijo, así aparecen resultados mientras se escribe.
+> Lo que el usuario escribe **nunca llega crudo al `MATCH`** — `src/notas/consultas-fts.ts`
+> lo parte por todo lo que no sea letra o número, porque un `:` o unas comillas sueltas
+> hacen que SQLite falle en vez de no encontrar nada.
 
 > La cookie es `HttpOnly` y `SameSite=Lax`: el front no la lee ni la manda a mano, la
 > adjunta el navegador. En producción nginx sirve el SPA y proxea `/api` a este
